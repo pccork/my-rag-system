@@ -1,0 +1,14 @@
+[
+  {
+    "question": "What are the setup steps?"
+  },
+  {
+    "question": "What warnings or cautions are listed?"
+  },
+  {
+    "question": "How should maintenance or cleaning be performed?",
+    "filters": {
+      "is_maintenance": true
+    }
+  }
+]
