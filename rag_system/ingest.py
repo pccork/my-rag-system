@@ -10,9 +10,10 @@ from rag_system.vector_store import ChromaVectorStore
 def ingest(settings: Settings | None = None, reset: bool = True) -> int:
     settings = settings or get_settings()
     settings.docs_dir.mkdir(parents=True, exist_ok=True)
+    settings.metadata_dir.mkdir(parents=True, exist_ok=True)
     settings.chroma_dir.mkdir(parents=True, exist_ok=True)
 
-    pages = load_pdfs(settings.docs_dir)
+    pages = load_pdfs(settings.docs_dir, metadata_dir=settings.metadata_dir)
     if not pages:
         return 0
 

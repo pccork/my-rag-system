@@ -6,3 +6,6 @@ data/chroma/*
 !data/chroma/.gitkeep
 data/audit/*
 !data/audit/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+

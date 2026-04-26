@@ -13,7 +13,7 @@ from rag_system.ingest import ingest
 def main() -> None:
     count = ingest(reset=True)
     if count == 0:
-        print("No PDFs found. Add files to ./docs and run ingestion again.")
+        print("No PDFs found. Add files to ./data/raw and run ingestion again.")
         return
     print(f"Ingested {count} chunks into ChromaDB.")
 

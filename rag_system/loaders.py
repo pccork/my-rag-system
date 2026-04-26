@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Any
 
 from pypdf import PdfReader
 
@@ -14,11 +16,16 @@ def find_pdfs(docs_dir: Path) -> list[Path]:
     return sorted(path for path in docs_dir.rglob("*.pdf") if path.is_file())
 
 
-def load_pdf(path: Path, docs_dir: Path | None = None) -> list[DocumentPage]:
+def load_pdf(
+    path: Path,
+    docs_dir: Path | None = None,
+    metadata_dir: Path | None = None,
+) -> list[DocumentPage]:
     reader = PdfReader(str(path))
     source_path = str(path)
     source_name = str(path.relative_to(docs_dir)) if docs_dir else path.name
-    document_type = infer_document_type(path.name)
+    document_metadata = load_document_metadata(path, metadata_dir)
+    document_type = str(document_metadata.get("document_type") or infer_document_type(path.name))
     pages: list[DocumentPage] = []
     current_section: str | None = None
 
@@ -37,6 +44,7 @@ def load_pdf(path: Path, docs_dir: Path | None = None) -> list[DocumentPage]:
                 section_title=current_section,
                 document_type=document_type,
                 metadata={
+                    **document_metadata,
                     "filename": path.name,
                     "page_number": index,
                     "section_title": current_section or "",
@@ -49,10 +57,10 @@ def load_pdf(path: Path, docs_dir: Path | None = None) -> list[DocumentPage]:
     return pages
 
 
-def load_pdfs(docs_dir: Path) -> list[DocumentPage]:
+def load_pdfs(docs_dir: Path, metadata_dir: Path | None = None) -> list[DocumentPage]:
     pages: list[DocumentPage] = []
     for pdf_path in find_pdfs(docs_dir):
-        pages.extend(load_pdf(pdf_path, docs_dir=docs_dir))
+        pages.extend(load_pdf(pdf_path, docs_dir=docs_dir, metadata_dir=metadata_dir))
     return pages
 
 
@@ -61,6 +69,8 @@ def extract_page_text(page: object) -> str:
         return page.extract_text(extraction_mode="layout") or ""
     except TypeError:
         return page.extract_text() or ""
+    except KeyError:
+        return ""
 
 
 def structure_text(text: str, current_section: str | None = None) -> tuple[str, str | None]:
@@ -80,6 +90,16 @@ def structure_text(text: str, current_section: str | None = None) -> tuple[str, 
             append_blank(structured)
             continue
 
+        if is_warning(line):
+            if in_table:
+                structured.append("[/TABLE]")
+                in_table = False
+            if not in_warning:
+                structured.append("[WARNING]")
+                in_warning = True
+            structured.append(line)
+            continue
+
         if is_heading(line):
             if in_table:
                 structured.append("[/TABLE]")
@@ -91,16 +111,6 @@ def structure_text(text: str, current_section: str | None = None) -> tuple[str, 
             append_blank(structured)
             structured.append(f"# {current_section}")
             append_blank(structured)
-            continue
-
-        if is_warning(line):
-            if in_table:
-                structured.append("[/TABLE]")
-                in_table = False
-            if not in_warning:
-                structured.append("[WARNING]")
-                in_warning = True
-            structured.append(line)
             continue
 
         if is_table_row(line):
@@ -138,16 +148,71 @@ def infer_document_type(filename: str) -> str:
     return "unknown"
 
 
+def load_document_metadata(path: Path, metadata_dir: Path | None) -> dict[str, Any]:
+    if metadata_dir is None:
+        return {}
+
+    candidates = [
+        metadata_dir / f"{path.name}.json",
+        metadata_dir / f"{path.stem}.json",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            with candidate.open("r", encoding="utf-8") as file:
+                metadata = json.load(file)
+            if not isinstance(metadata, dict):
+                raise ValueError(f"Metadata file must contain a JSON object: {candidate}")
+            return metadata
+    return {}
+
+
 def normalize_line(line: str) -> str:
     return " ".join(line.replace("\x00", "").split())
 
 
 def is_heading(line: str) -> bool:
+    if "=" in line:
+        return False
     if len(line) > 120 or line.endswith((".", ",", ";")):
         return False
-    numbered = re.match(r"^\d+(\.\d+)*\.?\s+[A-Z][A-Za-z0-9 /():,&-]+$", line)
-    title_case = re.match(r"^[A-Z][A-Za-z0-9 /():,&-]{3,}$", line)
-    return bool(numbered or line.isupper() or title_case and len(line.split()) <= 10)
+
+    if is_table_of_contents_entry(line):
+        return False
+
+    if is_numbered_section_heading(line):
+        return True
+
+    words = line.split()
+    if not words:
+        return False
+
+    title_like = (
+        words[0][0].isupper()
+        and len(words) <= 8
+        and count_title_words(words) >= max(1, len(words) - 1)
+    )
+    return bool(line.isupper() or title_like)
+
+
+def is_numbered_section_heading(line: str) -> bool:
+    if re.match(r"^\d+(?:\.\d+)+\.?\s+\S.{1,}$", line):
+        return True
+
+    top_level_match = re.match(r"^\d+\s+(.+)$", line)
+    if not top_level_match:
+        return False
+
+    title = top_level_match.group(1)
+    words = title.split()
+    return (
+        1 <= len(words) <= 8
+        and not re.search(r"\d", title)
+        and count_title_words(words) >= max(1, len(words) - 1)
+    )
+
+
+def count_title_words(words: list[str]) -> int:
+    return sum(1 for word in words if word[:1].isupper() or word[:1].isdigit())
 
 
 def clean_heading(line: str) -> str:
@@ -155,7 +220,17 @@ def clean_heading(line: str) -> str:
 
 
 def is_warning(line: str) -> bool:
-    return bool(re.match(r"^(warning|caution|danger|important|note)\b[:\s-]*", line, re.I))
+    return bool(
+        re.match(
+            r"^(warning|caution|danger|important|note|poznámka|upozornenie|varovanie|výstraha)\b[:\s-]*",
+            line,
+            re.I,
+        )
+    )
+
+
+def is_table_of_contents_entry(line: str) -> bool:
+    return bool(re.search(r"\.{3,}\s*\d+\s*$", line))
 
 
 def is_table_row(line: str) -> bool:

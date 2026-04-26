@@ -4,6 +4,7 @@ import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from rag_system.models import DocumentChunk, DocumentPage
 
@@ -34,6 +35,7 @@ class SemanticBlock:
     section_title: str
     document_type: str
     block_type: str
+    metadata: dict[str, Any]
 
     @property
     def token_count(self) -> int:
@@ -87,6 +89,7 @@ def build_semantic_blocks(pages: list[DocumentPage]) -> list[SemanticBlock]:
                 section_title=current_section,
                 document_type=first_page.document_type,
                 block_type=pending_type,
+                metadata=first_page.metadata,
             )
         )
         pending_lines = []
@@ -306,6 +309,7 @@ def split_oversized_block(
                 section_title=block.section_title,
                 document_type=block.document_type,
                 block_type=f"{block.block_type}_part",
+                metadata=block.metadata,
             )
         )
         if start + target_tokens >= len(words):
@@ -321,19 +325,9 @@ def build_chunk(blocks: list[SemanticBlock], chunk_index: int) -> DocumentChunk:
     block_types = sorted({block.block_type for block in blocks})
     section_titles = [block.section_title for block in blocks if block.section_title]
     section_title = section_titles[-1] if section_titles else ""
-    digest = hashlib.sha256(
-        f"{first.source_name}:{first.page_start}:{last.page_end}:{chunk_index}:{text}".encode(
-            "utf-8"
-        )
-    ).hexdigest()[:16]
-
-    return DocumentChunk(
-        id=f"{first.source_name}:{first.page_start}-{last.page_end}:{chunk_index}:{digest}",
-        text=text,
-        source_path=first.source_path,
-        source_name=first.source_name,
-        page_number=first.page_start,
-        metadata={
+    metadata = dict(first.metadata)
+    metadata.update(
+        {
             "filename": first.filename,
             "source_name": first.source_name,
             "page_number": first.page_start,
@@ -348,7 +342,21 @@ def build_chunk(blocks: list[SemanticBlock], chunk_index: int) -> DocumentChunk:
             "contains_warning": any("warning" in block_type for block_type in block_types),
             "contains_steps": any("step" in block_type for block_type in block_types),
             "is_maintenance": any("maintenance" in block_type for block_type in block_types),
-        },
+        }
+    )
+    digest = hashlib.sha256(
+        f"{first.source_name}:{first.page_start}:{last.page_end}:{chunk_index}:{text}".encode(
+            "utf-8"
+        )
+    ).hexdigest()[:16]
+
+    return DocumentChunk(
+        id=f"{first.source_name}:{first.page_start}-{last.page_end}:{chunk_index}:{digest}",
+        text=text,
+        source_path=first.source_path,
+        source_name=first.source_name,
+        page_number=first.page_start,
+        metadata=metadata,
     )
 
 

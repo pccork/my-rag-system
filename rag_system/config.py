@@ -13,6 +13,7 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     docs_dir: Path
+    metadata_dir: Path
     chroma_dir: Path
     chroma_collection: str
     embedding_backend: str
@@ -32,7 +33,8 @@ class Settings:
 
 def get_settings() -> Settings:
     return Settings(
-        docs_dir=Path(os.getenv("DOCS_DIR", "docs")),
+        docs_dir=Path(os.getenv("DOCS_DIR", "data/raw")),
+        metadata_dir=Path(os.getenv("METADATA_DIR", "data/metadata")),
         chroma_dir=Path(os.getenv("CHROMA_DIR", "data/chroma")),
         chroma_collection=os.getenv("CHROMA_COLLECTION", "local_rag_docs"),
         embedding_backend=os.getenv("EMBEDDING_BACKEND", "sentence-transformers"),

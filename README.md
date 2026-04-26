@@ -4,7 +4,8 @@ A local Retrieval Augmented Generation project for SOP and IFU PDFs, with struct
 
 ## Capabilities
 
-- Ingests PDFs from `./docs`
+- Ingests PDFs from `./data/raw`
+- Applies optional document metadata overrides from `./data/metadata`
 - Extracts structured text while preserving headings, warnings, cautions, table-like rows, and page metadata
 - Infers document type as `SOP`, `IFU`, or `unknown`
 - Chunks SOP/IFU content by headings, numbered steps, warnings, cautions, and maintenance sections
@@ -22,37 +23,42 @@ A local Retrieval Augmented Generation project for SOP and IFU PDFs, with struct
 
 ```text
 .
-├── app/
-│   └── streamlit_app.py
-├── data/
-│   ├── audit/
-│   │   └── .gitkeep
-│   └── chroma/
-│       └── .gitkeep
-├── docs/
-│   ├── .gitkeep
-│   └── VLLM_LLAMA_3090.md
-├── rag_system/
-│   ├── audit.py
-│   ├── chunking.py
-│   ├── config.py
-│   ├── embeddings.py
-│   ├── evaluation.py
-│   ├── ingest.py
-│   ├── llm.py
-│   ├── loaders.py
-│   ├── models.py
-│   ├── query.py
-│   └── vector_store.py
-├── scripts/
-│   ├── evaluate.py
-│   ├── ingest.py
-│   ├── query.py
-│   └── verify_audit.py
-├── eval_questions.json
-├── .env.example
-├── .gitignore
-└── requirements.txt
+|-- app/
+|   `-- streamlit_app.py
+|-- data/
+|   |-- audit/
+|   |   `-- .gitkeep
+|   |-- chroma/
+|   |   `-- .gitkeep
+|   |-- metadata/
+|   |   |-- .gitkeep
+|   |   `-- B89027AA.json
+|   `-- raw/
+|       `-- .gitkeep
+|-- docs/
+|   |-- .gitkeep
+|   `-- VLLM_LLAMA_3090.md
+|-- rag_system/
+|   |-- audit.py
+|   |-- chunking.py
+|   |-- config.py
+|   |-- embeddings.py
+|   |-- evaluation.py
+|   |-- ingest.py
+|   |-- llm.py
+|   |-- loaders.py
+|   |-- models.py
+|   |-- query.py
+|   `-- vector_store.py
+|-- scripts/
+|   |-- evaluate.py
+|   |-- ingest.py
+|   |-- query.py
+|   `-- verify_audit.py
+|-- eval_questions.json
+|-- .env.example
+|-- .gitignore
+`-- requirements.txt
 ```
 
 ## Quickstart
@@ -67,7 +73,7 @@ cp .env.example .env
 Put PDF files in:
 
 ```text
-docs/
+data/raw/
 ```
 
 Build the local index:
@@ -93,7 +99,8 @@ streamlit run app/streamlit_app.py
 Configuration is loaded from `.env`.
 
 ```text
-DOCS_DIR=docs
+DOCS_DIR=data/raw
+METADATA_DIR=data/metadata
 CHROMA_DIR=data/chroma
 CHROMA_COLLECTION=local_rag_docs
 
@@ -117,7 +124,7 @@ AUDIT_INCLUDE_TEXT=true
 
 ## PDF Ingestion
 
-PDFs are read from `DOCS_DIR`, which defaults to `docs`.
+PDFs are read from `DOCS_DIR`, which defaults to `data/raw`.
 
 The loader extracts page-level text and emits structured text for chunking. It preserves:
 
@@ -137,6 +144,30 @@ total_pages
 ```
 
 `document_type` is inferred from the filename when it contains `SOP` or `IFU`; otherwise it is set to `unknown`.
+
+Optional document-level metadata can be added with a JSON file in `METADATA_DIR`.
+Use either the PDF stem or full PDF filename, for example:
+
+```text
+data/raw/B89027AA.pdf
+data/metadata/B89027AA.json
+```
+
+Example:
+
+```json
+{
+  "manufacturer": "Beckman Coulter",
+  "publisher": "Normand Info",
+  "product": "Remisol Advance",
+  "product_family": "Remisol",
+  "document_code": "UG-ADV-SK-18",
+  "part_number": "B89027AA",
+  "document_type": "user_guide",
+  "language": "sk",
+  "created_date": "2014-05"
+}
+```
 
 ## Chunking
 
@@ -187,6 +218,11 @@ Retrieval supports exact-match metadata filters, including:
 
 ```text
 document_type
+manufacturer
+product
+product_family
+document_code
+part_number
 filename
 section_title
 page_number
@@ -399,3 +435,7 @@ python scripts/verify_audit.py
 ## Notes
 
 This is a scaffold, not a complete regulated clinical product. Before production clinical use, add and validate authentication, authorization, encryption at rest, retention policy, backup and restore, audit export, monitoring, model evaluation, human review workflows, and deployment controls.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
