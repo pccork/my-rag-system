@@ -1,0 +1,21 @@
+{
+  "manufacturer": "Beckman Coulter",
+  "product": "AutoMate 2500 Family",
+  "product_family": "AutoMate",
+  "document_code": "B85841D",
+  "part_number": "B85841D",
+  "status": "Effective",
+  "version": "B85841D",
+  "effective_date": "2017-05",
+  "related_labs": [
+    "Biochemistry",
+    "Immunology"
+  ],
+  "analysis_types": [
+    "Sample automation",
+    "Pre-analytics"
+  ],
+  "document_type": "reference_manual",
+  "language": "en",
+  "created_date": "2017-05"
+}

@@ -6,6 +6,17 @@
   "document_code": "B78799AM",
   "part_number": "B78799AM",
   "file_identifier": "711712562",
+  "status": "Effective",
+  "version": "B78799AM",
+  "effective_date": "2022-08",
+  "related_labs": [
+    "Biochemistry",
+    "Immunology"
+  ],
+  "analysis_types": [
+    "Sample automation",
+    "Pre-analytics"
+  ],
   "document_type": "IFU",
   "language": "en",
   "created_date": "2022-08"

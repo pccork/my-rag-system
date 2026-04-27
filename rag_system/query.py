@@ -8,7 +8,7 @@ from rag_system.config import Settings, get_settings
 from rag_system.embeddings import get_embedding_provider
 from rag_system.llm import get_llm_provider
 from rag_system.models import Citation, QueryResponse, SearchResult
-from rag_system.vector_store import ChromaVectorStore, MetadataFilter
+from rag_system.vector_store import MetadataFilter, PostgresHybridVectorStore, get_vector_store
 
 
 def query(
@@ -89,8 +89,15 @@ def retrieve(
 ) -> list[SearchResult]:
     settings = settings or get_settings()
     provider = get_embedding_provider(settings.embedding_backend, settings.embedding_model)
-    store = ChromaVectorStore(settings.chroma_dir, settings.chroma_collection)
+    store = get_vector_store(settings)
     query_embedding = provider.embed_query(question)
+    if isinstance(store, PostgresHybridVectorStore):
+        return store.hybrid_search(
+            question,
+            query_embedding,
+            top_k or settings.retrieval_top_k,
+            filters=filters,
+        )
     return store.search(
         query_embedding,
         top_k or settings.retrieval_top_k,
@@ -181,6 +188,8 @@ def build_prompt(
                 [
                     f"[{citation.index}]",
                     f"Filename: {citation.filename}",
+                    f"Source: {citation.source}",
+                    f"Version: {citation.version}",
                     f"Page: {citation.page}",
                     f"Section: {citation.section or 'unknown'}",
                     "Text:",
@@ -221,6 +230,18 @@ def build_citations(results: list[SearchResult]) -> list[Citation]:
                 or "unknown",
                 section=str(result.metadata.get("section_title") or "unknown"),
                 chunk_id=result.id,
+                source=str(
+                    result.metadata.get("source_name")
+                    or result.metadata.get("source_path")
+                    or result.metadata.get("filename")
+                    or "unknown"
+                ),
+                version=str(
+                    result.metadata.get("version")
+                    or result.metadata.get("revision")
+                    or result.metadata.get("document_version")
+                    or "unknown"
+                ),
                 score=result.score,
             )
         )
@@ -235,8 +256,9 @@ def format_citation_list(citations: list[Citation]) -> str:
     lines: list[str] = []
     for citation in citations:
         score = f", score {citation.score:.3f}" if citation.score is not None else ""
+        version = f", version: {citation.version}" if citation.version != "unknown" else ""
         lines.append(
             f"[{citation.index}] {citation.filename}, p. {citation.page}, "
-            f"section: {citation.section}{score}"
+            f"section: {citation.section}{version}{score}"
         )
     return "\n".join(lines)

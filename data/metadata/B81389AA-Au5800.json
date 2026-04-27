@@ -4,6 +4,16 @@
   "product_family": "AU",
   "document_code": "B81389AA",
   "part_number": "B81389AA",
+  "status": "Effective",
+  "version": "B81389AA",
+  "effective_date": "2015-10",
+  "related_labs": [
+    "Biochemistry",
+    "Immunology"
+  ],
+  "analysis_types": [
+    "Clinical chemistry"
+  ],
   "document_type": "reference_manual",
   "language": "en",
   "created_date": "2015-10"

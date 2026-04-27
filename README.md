@@ -1,16 +1,17 @@
 # Local Clinical RAG System
 
-A local Retrieval Augmented Generation project for SOP and IFU PDFs, with structured ingestion, intelligent chunking, ChromaDB retrieval, LLM answering, citations, Streamlit UI, retrieval evaluation, and query audit logging.
+A local Retrieval Augmented Generation project for SOP and IFU PDFs, with structured ingestion, intelligent chunking, hybrid PostgreSQL retrieval, ChromaDB local retrieval, LLM answering, citations, Streamlit UI, retrieval evaluation, and query audit logging.
 
 ## Capabilities
 
 - Ingests PDFs from `./data/raw`
-- Applies optional document metadata overrides from `./data/metadata`
+- Requires document metadata from `./data/metadata` before ingest
 - Extracts structured text while preserving headings, warnings, cautions, table-like rows, and page metadata
 - Infers document type as `SOP`, `IFU`, or `unknown`
 - Chunks SOP/IFU content by headings, numbered steps, warnings, cautions, and maintenance sections
 - Uses pluggable embeddings with `all-mpnet-base-v2` by default
-- Stores vectors locally in persistent ChromaDB
+- Stores vectors locally in persistent ChromaDB by default
+- Supports PostgreSQL with pgvector, PostgreSQL full-text search, GIN indexes, HNSW vector indexes, and Reciprocal Rank Fusion for hybrid retrieval
 - Supports exact-match metadata filtering during retrieval
 - Generates answers through a pluggable LLM backend
 - Supports local Ollama or a remote vLLM server on an RTX 3090
@@ -37,6 +38,7 @@ A local Retrieval Augmented Generation project for SOP and IFU PDFs, with struct
 |       `-- .gitkeep
 |-- docs/
 |   |-- .gitkeep
+|   |-- POSTGRES_SMOKE_TEST.md
 |   `-- VLLM_LLAMA_3090.md
 |-- rag_system/
 |   |-- audit.py
@@ -103,6 +105,17 @@ DOCS_DIR=data/raw
 METADATA_DIR=data/metadata
 CHROMA_DIR=data/chroma
 CHROMA_COLLECTION=local_rag_docs
+VECTOR_STORE_BACKEND=chroma
+POSTGRES_DSN=postgresql://localhost:5432/rag_system
+POSTGRES_EMBEDDING_DIMENSION=768
+POSTGRES_RRF_K=60
+POSTGRES_HNSW_M=16
+POSTGRES_HNSW_EF_CONSTRUCTION=100
+POSTGRES_HNSW_EF_SEARCH=100
+POSTGRES_HNSW_ITERATIVE_SCAN=strict_order
+POSTGRES_CANDIDATE_MULTIPLIER=5
+POSTGRES_EFFECTIVE_ONLY=true
+POSTGRES_EFFECTIVE_STATUS=Effective
 
 EMBEDDING_BACKEND=sentence-transformers
 EMBEDDING_MODEL=all-mpnet-base-v2
@@ -145,12 +158,12 @@ total_pages
 
 `document_type` is inferred from the filename when it contains `SOP` or `IFU`; otherwise it is set to `unknown`.
 
-Optional document-level metadata can be added with a JSON file in `METADATA_DIR`.
+Document-level metadata must be added with a JSON file in `METADATA_DIR`.
 Use either the PDF stem or full PDF filename, for example:
 
 ```text
-data/raw/B89027AA.pdf
-data/metadata/B89027AA.json
+data/raw/B89027AA-Remisol-Advance.pdf
+data/metadata/B89027AA-Remisol-Advance.json
 ```
 
 Example:
@@ -163,10 +176,50 @@ Example:
   "product_family": "Remisol",
   "document_code": "UG-ADV-SK-18",
   "part_number": "B89027AA",
+  "status": "Effective",
+  "version": "B89027AA",
+  "effective_date": "2014-05",
+  "related_labs": [
+    "Biochemistry",
+    "Immunology"
+  ],
+  "analysis_types": [
+    "Middleware",
+    "Result management"
+  ],
   "document_type": "user_guide",
   "language": "sk",
   "created_date": "2014-05"
 }
+```
+
+### Ingest Validation
+
+`python scripts/ingest.py` validates every PDF before extraction, chunking, embedding, or vector-store writes. Ingest refuses PDFs without a matching metadata JSON file and refuses metadata without explicit:
+
+```text
+status
+version
+effective_date
+related_labs
+analysis_types
+```
+
+`related_labs` and `analysis_types` must be non-empty lists of strings. Use `related_labs` for access and retrieval scopes such as `Biochemistry`, `Immunology`, or `POC`. Current core analyser documents are tagged for both `Biochemistry` and `Immunology`. A staff member who works across laboratories can query multiple lab scopes, while a POC trainee should be limited to documents with `related_labs` containing `POC`.
+
+Ingest warns if two documents share the same `document_code` while both are marked `Effective`. That warning allows historical versions to remain indexed but draws attention to possible source-of-truth conflicts before the live portal is used. Warnings are printed by the CLI; validation errors stop ingest.
+
+You can run the same validation directly:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+from rag_system.ingest_validation import validate_ingest_metadata
+
+report = validate_ingest_metadata(Path("data/raw"), Path("data/metadata"))
+print(f"documents: {report.document_count}")
+print(f"warnings: {report.warnings}")
+PY
 ```
 
 ## Chunking
@@ -208,10 +261,79 @@ EMBEDDING_BACKEND=sentence-transformers
 EMBEDDING_MODEL=all-mpnet-base-v2
 ```
 
-Vectors are stored in persistent ChromaDB:
+Vectors are stored in persistent ChromaDB by default:
 
 ```text
 data/chroma
+```
+
+For portal-style deployment, use PostgreSQL with pgvector and full-text search:
+
+```text
+VECTOR_STORE_BACKEND=postgres
+POSTGRES_DSN=postgresql://USER:PASSWORD@HOST:5432/rag_system
+POSTGRES_EMBEDDING_DIMENSION=768
+POSTGRES_RRF_K=60
+POSTGRES_HNSW_M=16
+POSTGRES_HNSW_EF_CONSTRUCTION=100
+POSTGRES_HNSW_EF_SEARCH=100
+POSTGRES_HNSW_ITERATIVE_SCAN=strict_order
+POSTGRES_CANDIDATE_MULTIPLIER=5
+POSTGRES_EFFECTIVE_ONLY=true
+POSTGRES_EFFECTIVE_STATUS=Effective
+```
+
+The PostgreSQL backend creates this Phase 1 schema automatically:
+
+```text
+documents
+document_chunks
+document_chunks.embedding vector(POSTGRES_EMBEDDING_DIMENSION)
+documents.status and document_chunks.status relational columns
+documents.version and document_chunks.version relational columns
+document_chunks.search_vector generated tsvector
+GIN index on search_vector
+GIN index on metadata
+HNSW index on embedding using cosine distance, m, and ef_construction
+partial HNSW and GIN indexes for status = POSTGRES_EFFECTIVE_STATUS
+```
+
+PostgreSQL retrieval runs both searches and combines them with Reciprocal Rank Fusion:
+
+```text
+question
+  -> embedding
+  -> pgvector HNSW semantic search
+  -> PostgreSQL full-text search
+  -> RRF score merge
+  -> top-k cited chunks
+```
+
+PostgreSQL HNSW tuning defaults are chosen as a conservative Phase 1 starting point for 768- or 1536-dimension embeddings:
+
+```text
+POSTGRES_HNSW_M=16
+POSTGRES_HNSW_EF_CONSTRUCTION=100
+POSTGRES_HNSW_EF_SEARCH=100
+POSTGRES_HNSW_ITERATIVE_SCAN=strict_order
+POSTGRES_CANDIDATE_MULTIPLIER=5
+```
+
+`POSTGRES_HNSW_M` and `POSTGRES_HNSW_EF_CONSTRUCTION` are index-build settings. Changing them requires rebuilding `document_chunks_embedding_hnsw_idx` and `document_chunks_effective_embedding_hnsw_idx`. `POSTGRES_HNSW_EF_SEARCH` is applied at query time to trade speed for recall. `POSTGRES_HNSW_ITERATIVE_SCAN=strict_order` asks pgvector 0.8.0+ to scan deeper when filters are restrictive. `POSTGRES_CANDIDATE_MULTIPLIER` controls how many vector and full-text candidates are gathered before RRF; for example, `top_k=5` with multiplier `5` gathers up to `25` candidates from each branch.
+
+For clinical portal retrieval, PostgreSQL searches only Effective document versions by default:
+
+```text
+POSTGRES_EFFECTIVE_ONLY=true
+POSTGRES_EFFECTIVE_STATUS=Effective
+```
+
+The backend stores `status` and `version` as relational columns on both `documents` and `document_chunks`, not only inside JSON metadata. At ingest time, status is read from `status`, `document_status`, `lifecycle_status`, or `effective_status` metadata. Version is read from `version`, `document_version`, or `revision`. If no status is supplied, the document is treated as `Effective`; set explicit metadata for archived or under-review files before ingesting them. Live PostgreSQL retrieval automatically adds `status = POSTGRES_EFFECTIVE_STATUS` unless the caller supplies an explicit `status` or `document_status` filter.
+
+The PostgreSQL backend smoke-test setup and result are recorded in:
+
+```text
+docs/POSTGRES_SMOKE_TEST.md
 ```
 
 Retrieval supports exact-match metadata filters, including:
@@ -226,10 +348,14 @@ part_number
 filename
 section_title
 page_number
+related_labs
+analysis_types
 contains_warning
 contains_steps
 is_maintenance
 ```
+
+For PostgreSQL, `related_labs=Biochemistry` and `analysis_types=Immunoassay` match list metadata using JSONB containment. ChromaDB stores scalar metadata only, so lab-scope access control should use PostgreSQL in production.
 
 Example:
 
@@ -247,7 +373,7 @@ The query flow is:
 ```text
 question
   -> embedding
-  -> ChromaDB semantic search
+  -> configured retrieval backend
   -> top-k chunks
   -> citation-aware LLM prompt
   -> structured response
@@ -268,6 +394,8 @@ Each citation contains:
 
 ```text
 filename
+source
+version
 page
 section
 chunk_id

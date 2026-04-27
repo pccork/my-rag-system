@@ -5,6 +5,17 @@
   "product_family": "Remisol",
   "document_code": "UG-ADV-SK-18",
   "part_number": "B89027AA",
+  "status": "Effective",
+  "version": "B89027AA",
+  "effective_date": "2014-05",
+  "related_labs": [
+    "Biochemistry",
+    "Immunology"
+  ],
+  "analysis_types": [
+    "Middleware",
+    "Result management"
+  ],
   "document_type": "user_guide",
   "language": "sk",
   "created_date": "2014-05"

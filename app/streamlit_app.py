@@ -79,6 +79,7 @@ if ask:
                 st.markdown(
                     f"[{citation.index}] **{citation.filename}** "
                     f"- page {citation.page} - section: {citation.section} "
+                    f"- version: {citation.version} "
                     f"- score: {score}"
                 )
         else:

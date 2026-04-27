@@ -3,15 +3,25 @@ from __future__ import annotations
 from rag_system.chunking import chunk_pages
 from rag_system.config import Settings, get_settings
 from rag_system.embeddings import get_embedding_provider
+from rag_system.ingest_validation import validate_ingest_metadata
 from rag_system.loaders import load_pdfs
-from rag_system.vector_store import ChromaVectorStore
+from rag_system.vector_store import get_vector_store
 
 
-def ingest(settings: Settings | None = None, reset: bool = True) -> int:
+def ingest(
+    settings: Settings | None = None,
+    reset: bool = True,
+    validate_metadata: bool = True,
+) -> int:
+    """Ingest source PDFs after validating production metadata."""
     settings = settings or get_settings()
     settings.docs_dir.mkdir(parents=True, exist_ok=True)
     settings.metadata_dir.mkdir(parents=True, exist_ok=True)
-    settings.chroma_dir.mkdir(parents=True, exist_ok=True)
+    if settings.vector_store_backend.strip().lower() in {"chroma", "chromadb"}:
+        settings.chroma_dir.mkdir(parents=True, exist_ok=True)
+
+    if validate_metadata:
+        validate_ingest_metadata(settings.docs_dir, settings.metadata_dir)
 
     pages = load_pdfs(settings.docs_dir, metadata_dir=settings.metadata_dir)
     if not pages:
@@ -28,7 +38,7 @@ def ingest(settings: Settings | None = None, reset: bool = True) -> int:
     )
     embeddings = provider.embed_documents([chunk.text for chunk in chunks])
 
-    store = ChromaVectorStore(settings.chroma_dir, settings.chroma_collection)
+    store = get_vector_store(settings)
     if reset:
         store.reset()
     store.add(chunks, embeddings)

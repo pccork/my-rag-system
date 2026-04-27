@@ -41,6 +41,8 @@ class Citation:
     page: int | str
     section: str
     chunk_id: str
+    source: str = "unknown"
+    version: str = "unknown"
     score: float | None = None
 
 
