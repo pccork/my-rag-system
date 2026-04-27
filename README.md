@@ -2,6 +2,14 @@
 
 A local Retrieval Augmented Generation project for SOP and IFU PDFs, with structured ingestion, intelligent chunking, hybrid PostgreSQL retrieval, ChromaDB local retrieval, LLM answering, citations, Streamlit UI, retrieval evaluation, and query audit logging.
 
+This repository is intended to act as the SOP/IFU RAG knowledge layer for the Lab Competence Portal:
+
+```text
+https://github.com/pccork/labcompetence-portal
+```
+
+The `labcompetence-portal` application should own user-facing workflows, authentication, authorization, role-based access control, security controls, trainee/staff context, and assignment delivery. This RAG system should remain focused on auditable document ingestion, chunking, retrieval, citation-grounded Q&A, and future question-generation support.
+
 ## Capabilities
 
 - Ingests PDFs from `./data/raw`
@@ -19,6 +27,31 @@ A local Retrieval Augmented Generation project for SOP and IFU PDFs, with struct
 - Provides CLI and Streamlit interfaces
 - Includes retrieval-only evaluation with manual scoring
 - Writes hash-chained query audit logs for user/session traceability
+
+## Portal Integration
+
+The planned production split is:
+
+```text
+labcompetence-portal
+  -> RBAC, authentication, security, user roles, lab scopes, assignments, UI
+  -> calls this RAG service with user/lab context
+
+my-rag-system
+  -> SOP/IFU ingestion, metadata validation, hybrid retrieval, citations, audit logs
+  -> returns grounded Q&A context and source-backed generated content
+```
+
+The portal can pass lab and role context as retrieval filters. For example, a Biochemistry or Immunology staff member can query documents tagged with those `related_labs`, while a POC trainee should be limited to documents tagged with `POC`.
+
+Future AWS Bedrock integration can use this same retrieval layer to provide grounded context for:
+
+- Q&A over Effective SOP/IFU versions
+- draft MCQ generation from retrieved source chunks
+- trainee assignment creation linked to instrument, lab, document version, and citations
+- answer explanations that cite the exact SOP/IFU source, page, section, and version
+
+Security-critical decisions should remain in `labcompetence-portal`; this service should receive already-authorized query context and enforce document metadata filters as a second layer of protection.
 
 ## Project Layout
 
